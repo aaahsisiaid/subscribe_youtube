@@ -3,18 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>YouTubeハンドル購読ツール</title>
+  <title>YouTubeマルチアカウント購読ツール</title>
   <style>
     body {
       font-family: "Segoe UI", sans-serif;
-      background: linear-gradient(135deg, #181818, #2c2c2c);
+      background: #121212;
       color: #fff;
-      padding: 20px;
       text-align: center;
+      padding: 20px;
     }
     button {
-      margin: 8px;
-      padding: 10px 20px;
+      margin: 6px;
+      padding: 8px 16px;
       border: none;
       border-radius: 8px;
       background: #ff0000;
@@ -22,95 +22,106 @@
       cursor: pointer;
       font-weight: bold;
     }
-    button:hover { opacity: 0.9; }
     textarea {
       width: 90%;
-      height: 120px;
-      margin-top: 10px;
+      height: 100px;
+      margin: 10px;
       border-radius: 8px;
       padding: 10px;
-      font-size: 15px;
     }
     #log {
+      width: 90%;
+      height: 160px;
+      margin: 10px auto;
+      background: rgba(255,255,255,0.05);
+      overflow-y: auto;
+      padding: 10px;
+      border-radius: 8px;
       text-align: left;
+      font-family: Consolas, monospace;
+    }
+    table {
       width: 90%;
       margin: 20px auto;
+      border-collapse: collapse;
       background: rgba(255,255,255,0.05);
-      border-radius: 8px;
-      padding: 10px;
-      height: 200px;
-      overflow-y: auto;
-      font-family: Consolas, monospace;
+    }
+    th, td {
+      padding: 8px;
+      border-bottom: 1px solid rgba(255,255,255,0.2);
+    }
+    img {
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
     }
   </style>
 </head>
 <body>
-  <h1>🎥 YouTube ハンドル購読ツール</h1>
-  <p>Googleアカウントでログインして、@ハンドルを指定して購読します</p>
-
-  <button id="authorizeBtn">Googleでログイン</button>
-  <button id="signoutBtn" style="display:none;">ログアウト</button>
+  <h1>🎬 YouTubeマルチアカウント購読ツール</h1>
 
   <div>
-    <textarea id="handleInput" placeholder="@example, @example2, または改行で複数指定"></textarea>
+    <button id="loginBtn">Googleアカウント追加</button>
+    <button id="listBtn">購読一覧を表示</button>
+    <button id="subscribeBtn">指定チャンネル購読</button>
+    <button id="unsubscribeBtn">指定チャンネル登録解除</button>
   </div>
-  <button id="subscribeBtn">購読開始</button>
 
+  <textarea id="handleInput" placeholder="@handle1, @handle2"></textarea>
   <div id="log"></div>
 
-  <!-- ✅ gapiロード -->
-  <script src="https://apis.google.com/js/api.js" async defer onload="handleClientLoad()"></script>
+  <table id="channelTable" style="display:none;">
+    <thead>
+      <tr>
+        <th>チャンネルアイコン</th>
+        <th>名前</th>
+        <th>ハンドル</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
 
+  <script src="https://apis.google.com/js/api.js" async defer onload="handleClientLoad()"></script>
   <script>
-    const CLIENT_ID = "320694642206-n0gk8vc7v6a3e2calbcp7r3jl50bic5p.apps.googleusercontent.com"; // ←必ず差し替え
-    const API_KEY = "AIzaSyCtUAPx02UxgEQtJzYcbRA1rJd5vi5AjaM"; // ←YouTube Data API v3 のAPIキー
+    const CLIENT_ID = "320694642206-n0gk8vc7v6a3e2calbcp7r3jl50bic5p.apps.googleusercontent.com";
+    const API_KEY = "AIzaSyCtUAPx02UxgEQtJzYcbRA1rJd5vi5AjaM";
     const SCOPES = "https://www.googleapis.com/auth/youtube.force-ssl";
 
     const logBox = document.getElementById("log");
-    const log = (msg) => {
-      console.log(msg);
-      logBox.innerHTML += msg + "<br>";
-      logBox.scrollTop = logBox.scrollHeight;
-    };
+    const log = (m) => { logBox.innerHTML += m + "<br>"; logBox.scrollTop = logBox.scrollHeight; console.log(m); };
 
-    let GoogleAuth;
+    let accounts = []; // { name, profile, auth }
 
     function handleClientLoad() {
       gapi.load("client:auth2", initClient);
     }
 
     async function initClient() {
-      try {
-        await gapi.client.init({
-          apiKey: API_KEY,
-          clientId: CLIENT_ID,
-          discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/youtube/v3/rest"],
-          scope: SCOPES,
-        });
-
-        GoogleAuth = gapi.auth2.getAuthInstance();
-        updateSigninStatus(GoogleAuth.isSignedIn.get());
-        GoogleAuth.isSignedIn.listen(updateSigninStatus);
-      } catch (err) {
-        log("🚫 gapi init エラー: " + (err.message || JSON.stringify(err)));
-      }
+      await gapi.client.init({
+        apiKey: API_KEY,
+        clientId: CLIENT_ID,
+        discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/youtube/v3/rest"],
+        scope: SCOPES,
+      });
+      log("✅ YouTube API 初期化完了");
     }
 
-    function updateSigninStatus(isSignedIn) {
-      document.getElementById("authorizeBtn").style.display = isSignedIn ? "none" : "inline-block";
-      document.getElementById("signoutBtn").style.display = isSignedIn ? "inline-block" : "none";
-      if (isSignedIn) {
-        const user = GoogleAuth.currentUser.get().getBasicProfile();
-        log("✅ ログイン中: " + user.getName());
-      } else {
-        log("🚪 ログアウトしました");
-      }
-    }
+    // --- ログインして別アカウント追加 ---
+    document.getElementById("loginBtn").onclick = async () => {
+      const auth2 = gapi.auth2.getAuthInstance();
+      const user = await auth2.signIn();
+      const profile = user.getBasicProfile();
+      const token = user.getAuthResponse().access_token;
+      accounts.push({ 
+        name: profile.getName(), 
+        email: profile.getEmail(), 
+        profile: profile.getImageUrl(), 
+        token 
+      });
+      log(`👤 ログイン: ${profile.getName()} (${profile.getEmail()})`);
+    };
 
-    document.getElementById("authorizeBtn").onclick = () => GoogleAuth.signIn();
-    document.getElementById("signoutBtn").onclick = () => GoogleAuth.signOut();
-
-    // ✅ ハンドル → channelId を取得
+    // --- ハンドル→channelId取得 ---
     async function getChannelIdFromHandle(handle) {
       try {
         const res = await gapi.client.youtube.channels.list({
@@ -118,45 +129,109 @@
           forHandle: handle.replace(/^@/, ""),
         });
         return res.result.items?.[0]?.id || null;
-      } catch (err) {
-        log(`❌ ${handle} の取得エラー: ${err.message}`);
+      } catch (e) {
+        log("❌ handle取得エラー: " + e.message);
         return null;
       }
     }
 
-    // ✅ 購読実行
-    async function insertSubscription(channelId) {
-      return await gapi.client.youtube.subscriptions.insert({
-        part: "snippet",
-        resource: { snippet: { resourceId: { kind: "youtube#channel", channelId } } },
+    // --- 購読実行 ---
+    async function subscribeChannel(token, channelId) {
+      const res = await fetch("https://www.googleapis.com/youtube/v3/subscriptions?part=snippet", {
+        method: "POST",
+        headers: {
+          "Authorization": "Bearer " + token,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          snippet: { resourceId: { kind: "youtube#channel", channelId } },
+        }),
       });
+      return await res.json();
     }
 
-    document.getElementById("subscribeBtn").addEventListener("click", async () => {
+    // --- 購読解除 ---
+    async function unsubscribeChannel(token, channelId) {
+      const list = await fetch(`https://www.googleapis.com/youtube/v3/subscriptions?part=id&forChannelId=${channelId}&mine=true`, {
+        headers: { "Authorization": "Bearer " + token },
+      });
+      const data = await list.json();
+      if (!data.items?.length) return "未登録";
+      const subId = data.items[0].id;
+      await fetch(`https://www.googleapis.com/youtube/v3/subscriptions?id=${subId}`, {
+        method: "DELETE",
+        headers: { "Authorization": "Bearer " + token },
+      });
+      return "解除成功";
+    }
+
+    // --- 購読一覧取得 ---
+    async function listSubscriptions(token) {
+      const res = await fetch(`https://www.googleapis.com/youtube/v3/subscriptions?part=snippet&mine=true&maxResults=20`, {
+        headers: { "Authorization": "Bearer " + token },
+      });
+      return await res.json();
+    }
+
+    // --- 登録一覧を表で表示 ---
+    async function showSubscriptions() {
+      const table = document.getElementById("channelTable");
+      const tbody = table.querySelector("tbody");
+      tbody.innerHTML = "";
+      table.style.display = "table";
+
+      for (const acc of accounts) {
+        log(`📋 ${acc.name} の購読チャンネルを取得中...`);
+        const subs = await listSubscriptions(acc.token);
+        for (const item of subs.items || []) {
+          const ch = item.snippet.resourceId.channelId;
+          const title = item.snippet.title;
+          const thumb = item.snippet.thumbnails?.default?.url;
+          const handle = item.snippet.title;
+          const row = `<tr><td><img src="${thumb}"></td><td>${title}</td><td>${handle}</td></tr>`;
+          tbody.insertAdjacentHTML("beforeend", row);
+        }
+      }
+    }
+
+    // --- 購読ボタン ---
+    document.getElementById("subscribeBtn").onclick = async () => {
       const raw = document.getElementById("handleInput").value.trim();
       if (!raw) return log("⚠️ ハンドルを入力してください");
-
       const handles = raw.split(/[\n,]+/).map(h => h.trim().replace(/^@/, "")).filter(Boolean);
-      log(`📋 ${handles.length}件のハンドルを処理します...`);
 
-      for (const handle of handles) {
-        try {
-          const channelId = await getChannelIdFromHandle(handle);
-          if (!channelId) {
-            log(`❌ 見つからず: ${handle}`);
-            continue;
-          }
-          log(`📺 ${handle} → ${channelId} 購読中...`);
-          await insertSubscription(channelId);
-          log(`✅ 購読成功: ${handle}`);
-        } catch (err) {
-          log(`⚠️ ${handle} エラー: ${err.message || JSON.stringify(err)}`);
+      for (const acc of accounts) {
+        log(`🚀 ${acc.name} で処理開始`);
+        for (const handle of handles) {
+          const id = await getChannelIdFromHandle(handle);
+          if (!id) { log(`❌ ${handle} 見つからず`); continue; }
+          const res = await subscribeChannel(acc.token, id);
+          log(`✅ ${acc.name}: ${handle} を購読`);
+          await new Promise(r => setTimeout(r, 1000)); // API制限対策
         }
-        await new Promise(r => setTimeout(r, 500)); // 0.5秒ウェイト（レート制限回避）
       }
+    };
 
-      log("🎉 全ての購読が完了しました！");
-    });
+    // --- 解除ボタン ---
+    document.getElementById("unsubscribeBtn").onclick = async () => {
+      const raw = document.getElementById("handleInput").value.trim();
+      if (!raw) return log("⚠️ ハンドルを入力してください");
+      const handles = raw.split(/[\n,]+/).map(h => h.trim().replace(/^@/, "")).filter(Boolean);
+
+      for (const acc of accounts) {
+        log(`🚮 ${acc.name} で解除処理`);
+        for (const handle of handles) {
+          const id = await getChannelIdFromHandle(handle);
+          if (!id) { log(`❌ ${handle} 見つからず`); continue; }
+          const res = await unsubscribeChannel(acc.token, id);
+          log(`🧹 ${acc.name}: ${handle} → ${res}`);
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      }
+    };
+
+    // --- 一覧表示ボタン ---
+    document.getElementById("listBtn").onclick = showSubscriptions;
   </script>
 </body>
 </html>
